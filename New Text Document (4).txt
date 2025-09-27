@@ -1,0 +1,65 @@
+//@version=5
+strategy("HA EMA10 + ADX Strategy (Simplified with ATR SL + Immediate Reverse)",
+     overlay=true,
+     pyramiding=0,
+     currency=currency.USD,
+     initial_capital=11,
+     default_qty_type=strategy.fixed,
+     default_qty_value=0.01)   // Always fixed lot
+
+// === Inputs ===
+tradeQty     = input.float(0.01, "Lot Size")   // Configurable lot size
+emaLength    = 10
+adxLength    = 14
+adxSmooth    = 14
+adxThreshold = 20
+atrLength    = input.int(14, "ATR Length")
+
+// === Heikin Ashi ===
+haTicker = ticker.heikinashi(syminfo.tickerid)
+ha_open  = request.security(haTicker, timeframe.period, open)
+ha_high  = request.security(haTicker, timeframe.period, high)
+ha_low   = request.security(haTicker, timeframe.period, low)
+ha_close = request.security(haTicker, timeframe.period, close)
+
+// === Indicators ===
+ema10 = ta.ema(ha_close, emaLength)
+[diplus, diminus, adx] = ta.dmi(adxLength, adxSmooth)
+atr = ta.atr(atrLength)
+
+// === Candle type ===
+haBull = ha_close > ha_open
+haBear = ha_close < ha_open
+
+// === Entry conditions ===
+longCond  = (adx > adxThreshold) and haBull and (ha_close > ema10)
+shortCond = (adx > adxThreshold) and haBear and (ha_close < ema10)
+
+// === Long Entry (Immediate Reverse) ===
+if longCond
+    if (strategy.position_size < 0)    // If short → close first
+        strategy.close("Short")
+    if (strategy.position_size <= 0)   // Then open long
+        stopPrice = ha_low - (atr * 0.5)
+        strategy.entry("Long", strategy.long, qty=tradeQty)
+        strategy.exit("L Exit", from_entry="Long", stop=stopPrice)
+
+// === Short Entry (Immediate Reverse) ===
+if shortCond
+    if (strategy.position_size > 0)    // If long → close first
+        strategy.close("Long")
+    if (strategy.position_size >= 0)   // Then open short
+        stopPrice = ha_high + (atr * 0.5)
+        strategy.entry("Short", strategy.short, qty=tradeQty)
+        strategy.exit("S Exit", from_entry="Short", stop=stopPrice)
+
+// === Close if price crosses opposite side of EMA (manual exit) ===
+if (strategy.position_size > 0 and ha_close < ema10)   // In long but close < EMA → exit
+    strategy.close("Long")
+
+if (strategy.position_size < 0 and ha_close > ema10)   // In short but close > EMA → exit
+    strategy.close("Short")
+
+// === Background Coloring ===
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 85) : na)   // Long
+bgcolor(strategy.position_size < 0 ? color.new(color.red, 85)   : na)   // Short

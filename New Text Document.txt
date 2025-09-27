@@ -1,0 +1,7 @@
+6AESWN6FS7T6FFMZ
+
+
+{"symbol":"{{ticker}}","side":"{{strategy.order.action}}","qty":"{{strategy.order.contracts}}","trigger_time":"{{timenow}}","strategy_id":"2664a1723c7cb7874c1a7b3bc9369915"}
+
+
+https://cdn-ind.testnet.deltaex.org/v2/webhook_alert/2664a1723c7cb7874c1a7b3bc9369915

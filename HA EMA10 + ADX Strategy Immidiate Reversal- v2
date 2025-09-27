@@ -1,0 +1,71 @@
+//@version=5
+strategy("HA EMA10 + ADX Strategy (Immediate Reverse)",
+     overlay=true,
+     pyramiding=0,
+     currency=currency.USD,
+     initial_capital=1127,
+     default_qty_type=strategy.cash,
+     default_qty_value=0)
+
+// === Inputs ===
+emaLength    = 10
+adxLength    = 14
+adxSmooth    = 14
+adxThreshold = 20.0
+riskPct      = 1.0
+lotSize      = input.float(0.01, "Lot Size", step=0.01)
+leverage     = input.int(200, "Leverage")
+
+// === Heikin Ashi ===
+haTicker = ticker.heikinashi(syminfo.tickerid)
+ha_open  = request.security(haTicker, timeframe.period, open)
+ha_high  = request.security(haTicker, timeframe.period, high)
+ha_low   = request.security(haTicker, timeframe.period, low)
+ha_close = request.security(haTicker, timeframe.period, close)
+
+// === Indicators ===
+ema10 = ta.ema(ha_close, emaLength)
+[diplus, diminus, adx] = ta.dmi(adxLength, adxSmooth)
+
+// === Candle type ===
+haBull = ha_close > ha_open
+haBear = ha_close < ha_open
+
+// === Risk calculation ===
+riskValue = strategy.initial_capital * (riskPct / 100)
+
+// === Entry conditions ===
+longCond  = (adx > adxThreshold) and haBull and (ha_close > ema10)
+shortCond = (adx > adxThreshold) and haBear and (ha_close < ema10)
+
+// === Position sizing function ===
+f_roundToLot(_qty, _lot) =>
+    math.round(_qty / _lot) * _lot
+
+// === Long Entry or Reverse from Short ===
+if (longCond)
+    if (strategy.position_size < 0)  // Already short → reverse
+        strategy.close("Short")
+    if (strategy.position_size <= 0) // Open new long
+        stopPrice    = ha_low
+        riskPerUnit  = ha_close - stopPrice
+        rawQty       = riskPerUnit > 0 ? (riskValue / riskPerUnit) : 0
+        qty          = f_roundToLot(rawQty, lotSize)
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("L Exit", from_entry="Long", stop=stopPrice)
+
+// === Short Entry or Reverse from Long ===
+if (shortCond)
+    if (strategy.position_size > 0)  // Already long → reverse
+        strategy.close("Long")
+    if (strategy.position_size >= 0) // Open new short
+        stopPrice    = ha_high
+        riskPerUnit  = stopPrice - ha_close
+        rawQty       = riskPerUnit > 0 ? (riskValue / riskPerUnit) : 0
+        qty          = f_roundToLot(rawQty, lotSize)
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("S Exit", from_entry="Short", stop=stopPrice)
+
+// === Background Coloring ===
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 85) : na)   // Long
+bgcolor(strategy.position_size < 0 ? color.new(color.red, 85)   : na)   // Short

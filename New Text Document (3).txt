@@ -1,0 +1,83 @@
+//@version=5
+strategy("HA EMA10 + ADX Strategy (Labels on every bar)",
+     overlay=true,
+     pyramiding=0,
+     currency=currency.USD,
+     initial_capital=170,
+     default_qty_type=strategy.fixed,
+     default_qty_value=0.01)   // Default fixed lot (0.01 = 1 LOT)
+
+// === Inputs ===
+tradeQty     = input.float(0.01, "Lot Size", step=0.0001)   // Configurable lot size
+emaLength    = input.int(10, "EMA Length")
+adxLength    = input.int(14, "ADX Length")
+adxSmooth    = input.int(14, "ADX Smooth")
+adxThreshold = input.int(20, "ADX Threshold")
+atrLength    = input.int(14, "ATR Length")
+labelLimit   = input.int(100, "Max debug labels (last N bars)", minval=1)
+
+// === Heikin Ashi ===
+haTicker = ticker.heikinashi(syminfo.tickerid)
+ha_open  = request.security(haTicker, timeframe.period, open)
+ha_high  = request.security(haTicker, timeframe.period, high)
+ha_low   = request.security(haTicker, timeframe.period, low)
+ha_close = request.security(haTicker, timeframe.period, close)
+
+// === Indicators ===
+ema10 = ta.ema(ha_close, emaLength)
+[diplus, diminus, adx] = ta.dmi(adxLength, adxSmooth)
+atr = ta.atr(atrLength)
+
+// === Candle type ===
+haBull = ha_close > ha_open
+haBear = ha_close < ha_open
+
+// === Entry conditions ===
+longCond  = (adx > adxThreshold) and haBull and (ha_close > ema10)
+shortCond = (adx > adxThreshold) and haBear and (ha_close < ema10)
+
+// === Long Entry (Immediate Reverse) ===
+if longCond
+    if (strategy.position_size < 0)    // If short → close first
+        strategy.close("Short")
+    if (strategy.position_size <= 0)   // Then open long
+        stopPrice = ha_low - (atr * 0.5)
+        strategy.entry("Long", strategy.long, qty=tradeQty)
+        strategy.exit("L Exit", from_entry="Long", stop=stopPrice)
+
+// === Short Entry (Immediate Reverse) ===
+if shortCond
+    if (strategy.position_size > 0)    // If long → close first
+        strategy.close("Long")
+    if (strategy.position_size >= 0)   // Then open short
+        stopPrice = ha_high + (atr * 0.5)
+        strategy.entry("Short", strategy.short, qty=tradeQty)
+        strategy.exit("S Exit", from_entry="Short", stop=stopPrice)
+
+// === Close if price crosses opposite side of EMA (manual exit) ===
+if (strategy.position_size > 0 and ha_close < ema10)
+    strategy.close("Long")
+
+if (strategy.position_size < 0 and ha_close > ema10)
+    strategy.close("Short")
+
+// === Debug Labels management ===
+var label[] debugLabels = array.new<label>(0)
+
+// Build the info text for the label (one string variable avoids multiline parsing issues)
+info =  "HA O: " + str.tostring(ha_open, format.mintick) + "\nHA H: " + str.tostring(ha_high, format.mintick) + "\nHA L: " + str.tostring(ha_low, format.mintick) + "\nHA C: " + str.tostring(ha_close, format.mintick) + "\nEMA10: " + str.tostring(ema10, format.mintick) + "\nADX: " + str.tostring(adx, "#.##") + "\nATR: " + str.tostring(atr, "#.##") + "\nLongCond: " + str.tostring(longCond) + "\nShortCond: " + str.tostring(shortCond) + "\nPosSize: " + str.tostring(strategy.position_size)
+
+// Create label on every *confirmed* bar (so labels represent final bar values)
+if barstate.isconfirmed
+    lab = label.new(bar_index, ha_high, text = info, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.blue, 75), textcolor = color.white, size = size.small)               
+    
+    array.push(debugLabels, lab)
+
+    // Keep only the last `labelLimit` labels
+    if array.size(debugLabels) > labelLimit
+        old = array.shift(debugLabels)
+        label.delete(old)
+
+// === Background Coloring ===
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 85) : na)
+bgcolor(strategy.position_size < 0 ? color.new(color.red, 85) : na)

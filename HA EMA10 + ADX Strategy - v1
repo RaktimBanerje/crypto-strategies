@@ -1,0 +1,72 @@
+//@version=5
+strategy("HA EMA10 + ADX Strategy",
+     overlay=true,
+     pyramiding=0,
+     currency=currency.USD,                 // Account in USD
+     initial_capital=1127,                  // Keep as 100k (like 1L INR)
+     default_qty_type=strategy.cash,
+     default_qty_value=0)
+
+// === Inputs ===
+emaLength    = 10
+adxLength    = 14
+adxSmooth    = 14
+adxThreshold = 20.0
+riskPct      = 1.0                            // Risk % of initial capital
+lotSize      = input.float(0.001, "Lot Size", step=0.001)  // Adjustable lot size per asset
+leverage     = input.int(200, "Leverage")     // Just for margin info (not qty)
+
+// === Heikin Ashi ===
+haTicker = ticker.heikinashi(syminfo.tickerid)
+ha_open  = request.security(haTicker, timeframe.period, open)
+ha_high  = request.security(haTicker, timeframe.period, high)
+ha_low   = request.security(haTicker, timeframe.period, low)
+ha_close = request.security(haTicker, timeframe.period, close)
+
+// === Indicators ===
+ema10 = ta.ema(ha_close, emaLength)
+[diplus, diminus, adx] = ta.dmi(adxLength, adxSmooth)
+
+// === Candle type ===
+haBull = ha_close > ha_open
+haBear = ha_close < ha_open
+
+// === Risk calculation ===
+riskValue = strategy.initial_capital * (riskPct / 100)
+
+// === Entry conditions ===
+longCond  = (adx > adxThreshold) and haBull and (ha_close > ema10)
+shortCond = (adx > adxThreshold) and haBear and (ha_close < ema10)
+
+// === Position sizing function ===
+f_roundToLot(_qty, _lot) =>
+    math.round(_qty / _lot) * _lot
+
+// === Long Entry ===
+if (longCond and strategy.position_size == 0)
+    stopPrice    = ha_low
+    riskPerUnit  = ha_close - stopPrice
+    rawQty       = riskPerUnit > 0 ? (riskValue / riskPerUnit) : 0
+    qty          = f_roundToLot(rawQty, lotSize)
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("L Exit", from_entry="Long", stop=stopPrice)
+
+// === Short Entry ===
+if (shortCond and strategy.position_size == 0)
+    stopPrice    = ha_high
+    riskPerUnit  = stopPrice - ha_close
+    rawQty       = riskPerUnit > 0 ? (riskValue / riskPerUnit) : 0
+    qty          = f_roundToLot(rawQty, lotSize)
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("S Exit", from_entry="Short", stop=stopPrice)
+
+// === Exit conditions ===
+if (strategy.position_size > 0 and haBear and ha_close < ema10)
+    strategy.close("Long")
+
+if (strategy.position_size < 0 and haBull and ha_close > ema10)
+    strategy.close("Short")
+
+// === Background Coloring ===
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 85) : na)   // Long
+bgcolor(strategy.position_size < 0 ? color.new(color.red, 85)   : na)   // Short
